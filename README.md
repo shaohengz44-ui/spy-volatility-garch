@@ -5,6 +5,8 @@
 
 > 自主项目 | Python | 2026-09
 
+📄 **[一页摘要报告（PDF）](output/SPY_volatility_report.pdf)** —— 结论、图表、方法要点浓缩在 A4 一页
+
 ---
 
 ## 一句话结论

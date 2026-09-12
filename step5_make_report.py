@@ -6,7 +6,7 @@ Step 5: 生成一页 PDF 报告（A4，可直接附在简历后或面试时递�
 
 跑法：
     python step5_make_report.py
-输出：output/SPY_波动率预测_一页报告.pdf
+输出：output/SPY_volatility_report.pdf
 """
 
 import numpy as np
@@ -233,8 +233,8 @@ ax.text(0.005, 0.645,
 ax.text(0, 0.05, '张绍衡  |  金融经济硕士  |  Python · arch · pandas  |  2026-09',
         fontsize=7.2, color=MUTED, va='bottom', transform=T)
 
-pdf_path = OUT / "SPY_波动率预测_一页报告.pdf"
+pdf_path = OUT / "SPY_volatility_report.pdf"
 fig.savefig(pdf_path, format='pdf')
-fig.savefig(OUT / "SPY_波动率预测_一页报告.png", dpi=150)   # 预览用
+fig.savefig(OUT / "SPY_volatility_report.png", dpi=150)   # 预览用
 print(f"[OK] PDF: {pdf_path}")
-print(f"[OK] PNG 预览: {OUT / 'SPY_波动率预测_一页报告.png'}")
+print(f"[OK] PNG 预览: {OUT / 'SPY_volatility_report.png'}")
