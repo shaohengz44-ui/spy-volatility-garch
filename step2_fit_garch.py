@@ -1,16 +1,15 @@
 """
-Step 2: 拟合 GARCH(1,1) 模型
+Step 2: GARCH(1,1) 的样本内估计
 
-学习目标：
-1. 用 arch 包拟合 GARCH(1,1)
-2. 读懂输出的 ω (omega) / α (alpha) / β (beta) 三个参数
-3. 可视化"模型估计的条件波动率" vs "实际收益率绝对值"
+内容：
+1. 用 arch 包估计 GARCH(1,1)
+2. 解读 omega / alpha / beta 三个参数及其持续性含义
+3. 对比条件波动率序列与 |r_t|
 
-跑法：
-    cd C:\\Users\\张\\Desktop\\宅家实习\\garch_volatility
+运行：
     python step2_fit_garch.py
 
-依赖 Step 1 生成的 data/SPY_returns.csv
+依赖 step1 生成的 data/SPY_returns.csv
 """
 
 import pandas as pd
@@ -61,7 +60,7 @@ result = model.fit(disp='off')
 print(result.summary())
 
 print("\n" + "=" * 60)
-print("参数解读（面试重点）")
+print("参数解读")
 print("=" * 60)
 
 # 提取三个核心参数（返回的是 pandas Series）
@@ -138,17 +137,6 @@ fig_path = output_dir / "SPY_step2_garch_fit.png"
 plt.savefig(fig_path, dpi=120, bbox_inches='tight')
 print(f"图已保存到: {fig_path}")
 
-plt.show()
+plt.close(fig)
 
-print("\n[OK] Step 2 完成！")
-print("""
-【面试要点回顾】
-1. 我们拟合了 GARCH(1,1)：σ²_t = ω + α·ε²_{t-1} + β·σ²_{t-1}
-2. 三参数 ω, α, β 的经济含义：长期基准 / 新冲击影响 / 波动率延续
-3. α + β 是持续性 —— 美股一般 0.97-0.99，说明波动率高度持续
-4. 条件波动率能"看得见地"跟上实际波动率聚集期（2020.03、2022 等）
-
-【下一步 Step 3】
-- 做未来 N 天的波动率预测
-- 用滚动窗口回测预测精度（计算 MSE / MAE）
-""")
+print("\n[OK] Step 2 完成。")

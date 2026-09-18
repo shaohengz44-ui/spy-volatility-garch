@@ -1,7 +1,7 @@
 # SPY 波动率预测：GARCH 族模型的杠杆效应与评价方法
 
 用 1508 个交易日的 SPY 数据，比较 GARCH(1,1)、GJR-GARCH、EGARCH 在**样本外**波动率预测上的表现，
-并讨论一个常被忽略的问题：**换一个损失函数，模型排名会反过来。**
+并讨论两个容易被忽略的问题：**波动率代理变量的系统性偏误**，以及**损失函数的选择会改变模型排名**。
 
 > 自主项目 | Python | 2026-09
 
@@ -11,9 +11,11 @@
 
 ## 一句话结论
 
-在 302 天的 walk-forward 回测中，GARCH 族模型在 **QLIKE** 损失下全部优于 30 天滚动标准差基准，
-但在 **MSE** 下反而不如它；Diebold-Mariano 检验显示这些差距**在统计上均不显著**（p ≈ 0.11–0.15）。
-**在风险管理场景应以 QLIKE 为准**，因为它对"低估波动率"的惩罚远重于高估 —— 这正是风控真正关心的那一侧。
+在 302 天的 walk-forward 回测中，**含杠杆效应的 EGARCH-t 与 GJR-t 在 QLIKE、MSE、MAE 三种损失下均优于
+30 天滚动标准差基准**，Diebold-Mariano 检验在 5% 水平显著（p = 0.019 / 0.024）；
+而对称的 GARCH(1,1) 方向一致但未达显著。**优势来自杠杆效应本身，而不是"用了 GARCH"。**
+
+风险管理场景应以 QLIKE 为主指标，因为它对"低估波动率"的惩罚远重于高估 —— 这正是风控承担成本的一侧。
 
 ---
 
@@ -53,19 +55,26 @@ $$\sigma_t^2 = \omega + \alpha \varepsilon_{t-1}^2 + \beta \sigma_{t-1}^2$$
 全样本估计结果：$\omega = 0.0487,\ \alpha = 0.1738,\ \beta = 0.7920$
 
 **$\alpha + \beta = 0.9658$** —— 波动率冲击衰减极慢，高持续性，接近 IGARCH 的边界。
-直观含义：今天的一次大波动，对一个月后的波动率仍有可观影响。
+对应的半衰期约 **20 个交易日**：今天的一次大波动，对一个月后的波动率仍有可观影响。
+
+模型隐含的无条件方差 $\omega/(1-\alpha-\beta) = 1.4227$，年化 **18.93%**，略低于样本标准差给出的 19.92% ——
+差额来自极大值的归因方式：GARCH 把 2020 年 3 月的极端收益归因于当时的高条件波动率，而非长期水平。
 
 ![GARCH 拟合](output/SPY_step2_garch_fit.png)
 
 ### Step 3：Walk-forward 回测
 
 - 80/20 划分：训练 1206 天，测试 **302 天**（2023-10-18 ~ 2024-12-30）
-- 每一步只用 $t$ 时刻之前的数据训练，**每 5 天重新拟合一次**，杜绝 lookahead bias
+- 每个测试日都用截至 $t-1$ 的全部数据重新估计模型，再做 1 步预测
 - 基准（baseline）：过去 30 天滚动标准差 —— 业界最常见的朴素做法
+
+> **回测协议的一个细节。** 基准每天都会用上最新一天的数据，因此模型侧也必须每天重新估计。
+> 若隔若干天才重估、其间沿用旧的一步预测，模型使用的信息集就落后于基准，
+> 比较将系统性地不利于 GARCH 族 —— 这不是 lookahead bias，而是信息利用不对等。
 
 ![样本外回测](output/SPY_step3_forecast_backtest.png)
 
-**第一版结果：GARCH 输了**（MAE 0.4878 vs 基准 0.4725，差 -3.2%）。
+**第一版结果：GARCH(1,1) 输给基准**（MAE 0.4833 vs 0.4725，差 −2.3%）。
 
 这个"失败"是本项目最有价值的地方，因为它逼出了下面两个诊断。
 
@@ -76,7 +85,7 @@ $$\sigma_t^2 = \omega + \alpha \varepsilon_{t-1}^2 + \beta \sigma_{t-1}^2$$
 $$E|r_t| = \sigma_t \sqrt{2/\pi} \approx 0.798\,\sigma_t$$
 
 $|r|$ 平均只有真实 $\sigma$ 的 80%，所以**哪怕预测完全准，对着 $|r|$ 比也会显得高估 20%**。
-这解释了为什么 Step 3 里两个完全不同的模型误差均值同为正（+0.243 与 +0.169）。
+这解释了为什么 Step 3 里两个完全不同的模型误差均值同为正（+0.244 与 +0.169）。
 
 测试期实测：$\text{mean}|r| / \sqrt{\text{mean}\,r^2} = 0.7436$，理论值 $\sqrt{2/\pi} = 0.7979$ —— 吻合。
 
@@ -106,49 +115,52 @@ $$\text{QLIKE} = \ln \sigma^2 + \frac{r^2}{\sigma^2}$$
 AIC 相对基准改善 **117.7**。但真正值得注意的是 GJR 的另一个参数：
 
 > **$\alpha = 0.0025 \approx 0$，而 $\gamma = 0.2558$。**
-> 上涨对明天的波动率几乎没有影响，SPY 的日度波动率**基本完全由下跌驱动**。
+> 在本样本中，同等幅度的负向冲击对次日波动率的影响远强于正向冲击，
+> 正向冲击的估计影响接近于零。
 
 这就是新息冲击曲线右半边几乎水平的原因：
 
 ![模型对比](output/SPY_step4_leverage_comparison.png)
 
-### 样本外：排名取决于损失函数
+### 样本外：杠杆模型全面优于基准
 
-| 模型 | QLIKE ↓ | MSE(σ² vs r²) | MAE(σ vs \|r\|) |
+| 模型 | QLIKE ↓ | MSE(σ² vs r²) ↓ | MAE(σ vs \|r\|) ↓ |
 |---|---|---|---|
-| **GJR-t** | **0.5118** | 1.5280 | 0.4781 |
-| GARCH-N | 0.5291 | 1.3922 | 0.4878 |
-| EGARCH-t | 0.5292 | 1.4277 | **0.4697** |
-| GARCH-t | 0.5322 | 1.3836 | 0.4846 |
-| Baseline（30 日滚动 std） | 0.6073 | **1.3585** | 0.4725 |
+| **EGARCH-t** | **0.4777** | **1.2730** | **0.4513** |
+| GJR-t | 0.4806 | 1.3425 | 0.4635 |
+| GARCH-t | 0.5311 | 1.3294 | 0.4794 |
+| GARCH-N | 0.5313 | 1.3363 | 0.4833 |
+| Baseline（30 日滚动 std） | 0.6073 | 1.3585 | 0.4725 |
 
-**QLIKE 下四个 GARCH 全胜基准；MSE 下基准反而最优。** 原因：
+两点值得注意：
 
-1. MSE 被少数极端 $r^2$ 主导 —— 预测偏保守的基准在平方损失下更"安全"
-2. MSE 对称惩罚，QLIKE 重罚低估。波动率跳升时 GARCH 跟得上，基准要等窗口慢慢爬
+1. **对称模型仍打不过基准的 MAE。** GARCH-N/t 的 MAE（0.4833 / 0.4794）依然高于基准的 0.4725，
+   只有引入杠杆效应之后才全面反超。可见 Step 3 的"失败"不只是评价方式的问题，模型设定确实缺了东西。
+2. **损失函数仍会改变排序。** GJR-t 在 QLIKE 下排第二，在 MSE 下降到第四。
+   MSE 被少数极端 $r^2$ 主导且对称惩罚；QLIKE 重罚低估。
 
 **该信哪个取决于成本结构。** 做 VaR、保证金、风险限额时，低估波动率意味着资本金不足，
 高估只是效率损失 —— 成本本身不对称，就该用不对称的损失函数。**风控场景应以 QLIKE 为准。**
 
-### 显著性检验：诚实的结论
+### 显著性检验
 
-Diebold-Mariano 检验（QLIKE 损失，Newey-West HAC 修正）：
+Diebold-Mariano 检验（QLIKE 损失，Newey-West HAC 修正，H₀：两模型预测精度相同）：
 
 | 模型 vs 基准 | DM 统计量 | p 值 | 结论 |
 |---|---|---|---|
-| GARCH-N | -1.53 | 0.125 | 无显著差异 |
-| GARCH-t | -1.50 | 0.134 | 无显著差异 |
-| GJR-t | -1.60 | 0.109 | 无显著差异 |
-| EGARCH-t | -1.44 | 0.149 | 无显著差异 |
+| **EGARCH-t** | **-2.35** | **0.019** | **显著优于基准** |
+| **GJR-t** | **-2.26** | **0.024** | **显著优于基准** |
+| GARCH-t | -1.45 | 0.146 | 证据不足 |
+| GARCH-N | -1.44 | 0.150 | 证据不足 |
 
-四个模型的 DM 统计量方向一致为负（即优于基准），但 **n = 302 的样本拿不到 5% 显著性**。
-如实报告这一点，比宣称"提升了 X%"更站得住。
+两个杠杆模型在 5% 水平显著优于基准；两个对称模型方向一致（统计量为负）但未达显著。
+n = 302 属小样本，检验功效有限，"未被拒绝"应理解为证据不足，而非两者等价。
 
 ---
 
 ## 局限与可改进方向
 
-- **测试期是低波动牛市**（2023Q4–2024），GARCH 的优势在市场转折期才充分体现，样本期对它不利
+- **样本外窗口仅 302 天**，且测试期整体处于低波动区间，GARCH 的优势在市场转折期才更充分体现
 - **$r^2$ 仍是高噪声代理**，用日内高频数据构造 realized variance 可大幅降低评价噪声
 - 未做 **Model Confidence Set**，多模型比较存在数据窥探问题
 - 未纳入外生信息（VIX、宏观事件、隔夜跳空）
@@ -161,9 +173,10 @@ Diebold-Mariano 检验（QLIKE 损失，Newey-West HAC 修正）：
 ```
 garch_volatility/
 ├── step1_data_and_returns.py        # 取数、对数收益率、描述性统计与可视化
-├── step2_fit_garch.py               # GARCH(1,1) 拟合与条件波动率
+├── step2_fit_garch.py               # GARCH(1,1) 估计与条件波动率
 ├── step3_forecast_and_backtest.py   # Walk-forward 回测 + 基准对比
 ├── step4_leverage_models.py         # GJR/EGARCH + QLIKE + Diebold-Mariano
+├── step5_make_report.py             # 生成一页 A4 摘要报告
 ├── data/
 │   └── SPY_returns.csv
 └── output/
@@ -172,7 +185,8 @@ garch_volatility/
     ├── SPY_step3_forecast_backtest.png
     ├── SPY_step4_leverage_comparison.png
     ├── SPY_step3_backtest_results.csv
-    └── SPY_step4_*.csv               # 样本内表、样本外表、DM 检验表
+    ├── SPY_step4_*.csv               # 样本内表、样本外表、DM 检验表
+    └── SPY_volatility_report.pdf     # 一页摘要报告
 ```
 
 ## 运行方式
@@ -181,8 +195,9 @@ garch_volatility/
 pip install numpy pandas matplotlib scipy yfinance arch
 python step1_data_and_returns.py
 python step2_fit_garch.py
-python step3_forecast_and_backtest.py
-python step4_leverage_models.py      # 约 3-6 分钟
+python step3_forecast_and_backtest.py   # 302 次重估，约 30 秒
+python step4_leverage_models.py         # 4 个模型 × 302 次重估，约 2 分钟
+python step5_make_report.py
 ```
 
 环境：Python 3.13，`arch` 8.0。图中含中文，需系统装有 Microsoft YaHei 或 SimHei。

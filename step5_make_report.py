@@ -1,10 +1,9 @@
 """
-Step 5: 生成一页 PDF 报告（A4，可直接附在简历后或面试时递出）
+Step 5: 生成一页 A4 摘要报告（PDF）
 
-设计原则：面试官只看 30 秒，所以信息密度要高但有层次 ——
-  顶部一句话结论 -> 两张最有说服力的图 -> 两张关键结果表 -> 底部方法与局限
+版面逻辑：顶部一句话结论 -> 两张核心图 -> 两张结果表 -> 底部方法要点与局限
 
-跑法：
+运行：
     python step5_make_report.py
 输出：output/SPY_volatility_report.pdf
 """
@@ -94,10 +93,10 @@ ax.add_patch(plt.Rectangle((0, 0.0), 1, 0.63, transform=T,
 ax.text(0.018, 0.575, '核心结论',
         fontsize=9.5, fontweight='bold', color=BLUE, va='top', transform=T)
 ax.text(0.018, 0.435,
-        'SPY 日度波动率几乎完全由下跌驱动（GJR 中 α≈0，γ=0.256，t=4.95）。样本外，GARCH 族在 QLIKE 损失下\n'
-        '全面优于 30 日滚动标准差基准，但在 MSE 下反而不如 —— 模型排名取决于损失函数。风险管理场景应以\n'
-        'QLIKE 为准：它重罚"低估波动率"，而这正是风控真正承担成本的一侧。Diebold-Mariano 检验显示差距\n'
-        '尚未达到统计显著（p ≈ 0.11–0.15），如实报告。',
+        '负向冲击对次日波动率的影响显著强于同等幅度的正向冲击（GJR 中 α≈0，γ=0.256，t=4.95）。样本外，\n'
+        '含杠杆效应的 EGARCH-t 与 GJR-t 在 QLIKE、MSE、MAE 三种损失下均优于 30 日滚动标准差基准，\n'
+        'Diebold-Mariano 检验在 5% 水平显著（p = 0.019 / 0.024）；对称的 GARCH(1,1) 方向一致但不显著。\n'
+        '即提升来自杠杆效应本身，而非"用了 GARCH"。风控场景以 QLIKE 为主指标：它重罚低估波动率。',
         fontsize=8.0, color=INK, va='top', linespacing=1.60, transform=T)
 
 # ---------- 图 1：新息冲击曲线 ----------
@@ -124,7 +123,7 @@ ax.set_ylabel('次日条件方差 σ²', fontsize=8)
 ax.tick_params(labelsize=7.5)
 ax.legend(fontsize=7, loc='upper center', framealpha=0.9)
 ax.grid(alpha=0.25)
-ax.annotate('右半边近乎水平\n= 上涨几乎不推高波动率', xy=(2.8, 1.45),
+ax.annotate('右半边近乎水平\n= 上涨对次日波动率影响很小', xy=(2.8, 1.45),
             xytext=(0.40, 0.46), textcoords='axes fraction',
             fontsize=7.2, color=ACCENT, linespacing=1.5,
             arrowprops=dict(arrowstyle='->', color=ACCENT, lw=1.0))
@@ -194,18 +193,18 @@ cells = [[m if m != 'Baseline-30d' else '基准(30日std)',
           f"{tab_oos.loc[m, 'QLIKE']:.4f}",
           f"{tab_oos.loc[m, 'MSE(sig2 vs r2)']:.3f}"] for m in order_oos]
 hl = order_oos.index('Baseline-30d') + 1
-draw_table(ax, '样本外：排名随损失函数翻转',
+draw_table(ax, '样本外：杠杆模型全面胜出',
            ['模型', 'QLIKE ↓', 'MSE ↓'], cells,
            [0.44, 0.28, 0.28], highlight_row=hl,
-           note='QLIKE 下基准垫底，MSE 下基准反而最优（红色行）。\n'
-                'MSE 被少数极端 r² 主导且对称惩罚；QLIKE 重罚低估。')
+           note='基准（红色行）在两种损失下均垫底；但 GJR 在 QLIKE 下居次席、\n'
+                '在 MSE 下降至第四 —— 损失函数仍会改变模型排序。')
 
 # ---------- 方法 + DM 检验 ----------
 ax = fig.add_subplot(gs[3, :]); ax.axis('off')
 T = ax.transAxes
 ax.text(0, 1.0, '方法要点', fontsize=9.5, fontweight='bold', color=BLUE, va='top', transform=T)
 ax.text(0.005, 0.845,
-        '• 划分  训练 1206 天 / 测试 302 天（2023-10-18 ~ 2024-12-30），每 5 天滚动重训，杜绝 lookahead bias\n'
+        '• 划分  训练 1206 天 / 测试 302 天（2023-10-18 ~ 2024-12-30），每日以截至 t−1 的数据重新估计\n'
         '• 代理  以 r² 替代 |r| 作真实波动率代理 —— 因 E|r| = σ·√(2/π) ≈ 0.798σ，|r| 系统性低估 σ 约 20%\n'
         '            （测试期实测比值 0.7436，与理论值 0.7979 吻合），而 r² 对 σ² 条件无偏\n'
         '• 损失  QLIKE = ln σ² + r²/σ²（Patton 2011 robust loss），对低估波动率的惩罚远重于高估\n'
@@ -217,7 +216,7 @@ ax.text(0.005, 0.185, 'DM 检验结果（各模型 vs 基准，QLIKE）：　'
                     for m in ['GJR-t', 'GARCH-N', 'EGARCH-t']),
         fontsize=7.5, color=INK, va='top', transform=T)
 ax.text(0.005, 0.065,
-        '四者方向一致为负（优于基准）但均未达 5% 显著性 —— n=302 的小样本下这是预期内的结果，如实报告。',
+        'EGARCH-t 与 GJR-t 在 5% 水平显著优于基准；对称 GARCH 方向一致但未达显著。n=302 属小样本，按此口径报告。',
         fontsize=7.5, color=ACCENT, va='top', transform=T)
 
 # ---------- 底部：局限 + 落款 ----------
@@ -227,10 +226,10 @@ ax.plot([0, 1], [1.02, 1.02], color='#CCCCCC', lw=0.8, transform=T, clip_on=Fals
 ax.text(0, 0.88, '局限与下一步', fontsize=8.6, fontweight='bold', color=MUTED,
         va='top', transform=T)
 ax.text(0.005, 0.645,
-        '测试期为低波动牛市，对 GARCH 不利；r² 仍是高噪声代理，宜用日内高频数据构造 realized variance；\n'
+        '测试期为低波动区间，样本外窗口仅 302 天；r² 仍是高噪声代理，宜用日内高频数据构造 realized variance；\n'
         '多模型比较存在数据窥探问题，可加 Model Confidence Set；未纳入 VIX、隔夜跳空等外生信息。',
         fontsize=7.4, color=MUTED, va='top', linespacing=1.62, transform=T)
-ax.text(0, 0.05, '张绍衡  |  金融经济硕士  |  Python · arch · pandas  |  2026-09',
+ax.text(0, 0.05, 'github.com/shaohengz44-ui/spy-volatility-garch  |  Python · arch · pandas  |  2026-09',
         fontsize=7.2, color=MUTED, va='bottom', transform=T)
 
 pdf_path = OUT / "SPY_volatility_report.pdf"

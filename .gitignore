@@ -7,3 +7,6 @@ venv/
 .idea/
 .DS_Store
 Thumbs.db
+
+# 个人复习资料，不进公开仓库
+复习资料/

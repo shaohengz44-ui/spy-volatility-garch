@@ -1,12 +1,13 @@
 """
-Step 1: 拉数据 + 计算收益率 + 观察波动率聚集
+Step 1: 数据获取、对数收益率计算与波动率聚集的初步观察
 
-学习目标：
-1. 学会用 yfinance 拉金融数据
-2. 理解为什么金融建模用"对数收益率"而不是"价格"或"简单收益率"
-3. 亲眼看到"波动率聚集"（volatility clustering）—— 这是 GARCH 的立身之本
+内容：
+1. 用 yfinance 获取日频价格数据
+2. 计算对数收益率（可加、近似对称，便于后续建模）
+3. 描述性统计与可视化，观察波动率聚集现象
 
-跑法：在项目目录下打开终端，运行 `python step1_data_and_returns.py`
+运行：
+    python step1_data_and_returns.py
 """
 
 import yfinance as yf
@@ -57,7 +58,7 @@ df = df.dropna()
 df['log_return_pct'] = df['log_return'] * 100
 
 # ============================================================
-# 3. 描述性统计（面试常被问）
+# 3. 描述性统计
 # ============================================================
 returns = df['log_return_pct']
 print("=" * 50)
@@ -87,7 +88,7 @@ axes[0].set_title(f'{TICKER} Adjusted Close Price', fontsize=13, fontweight='bol
 axes[0].set_ylabel('Price (USD)')
 axes[0].grid(alpha=0.3)
 
-# 图2：日度对数收益率 —— 重点看这张图！
+# 图2：日度对数收益率
 # 👀 观察：是不是有几段"密集的大波动"聚在一起（比如2020年3月新冠、2022年通胀）？
 #         平静期又是长时间的小波动？—— 这就是波动率聚集！
 axes[1].plot(df.index, df['log_return_pct'], color='darkred', linewidth=0.5)
@@ -118,7 +119,6 @@ data_path.parent.mkdir(exist_ok=True)
 df[['Close', 'log_return', 'log_return_pct']].to_csv(data_path)
 print(f"数据已保存到: {data_path}")
 
-plt.show()
+plt.close(fig)
 
-print("\n[OK] Step 1 完成！")
-print("下一步 Step 2：在收益率序列上跑 GARCH(1,1) 模型")
+print("\n[OK] Step 1 完成。")

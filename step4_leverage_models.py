@@ -14,7 +14,7 @@ Step 4: GJR-GARCH / EGARCH 杠杆效应 + 修正评价体系
 3. Step 3 发现 GARCH 跑输 baseline（MAE -3.23%），诊断出评价体系本身有问题
    -> 本步骤修正：r^2 代理 + QLIKE 损失 + Diebold-Mariano 显著性检验。
 
-跑法：
+运行：
     python step4_leverage_models.py
 预计运行时间：3-6 分钟（4 个模型各做一遍 walk-forward）
 """
@@ -92,7 +92,7 @@ tab_a = pd.DataFrame(rows).set_index('模型')
 print(tab_a.round(4).to_string())
 print()
 
-print("杠杆参数怎么读（面试高频追问，符号方向别记反）：")
+print("杠杆参数解读（注意 GJR 与 EGARCH 的 gamma 符号方向相反）：")
 print("  GJR   : sigma^2_t = omega + (alpha + gamma*I[eps<0]) * eps^2_{t-1} + beta * sigma^2_{t-1}")
 print("          gamma > 0  =>  负收益额外推高波动率（存在杠杆效应）")
 print("  EGARCH: ln sigma^2_t = omega + alpha*(|e|-E|e|) + gamma*e_{t-1} + beta*ln sigma^2_{t-1}")
@@ -108,22 +108,22 @@ print(f"  AIC 最优模型：{tab_a['AIC'].idxmin()}（相对基准 GARCH-N 改�
       f"{tab_a.loc['GARCH-N', 'AIC'] - tab_a['AIC'].min():.1f}）\n")
 
 # ============================================================
-# 3. Walk-forward 样本外预测（协议跟 Step 3 一模一样）
+# 3. Walk-forward 样本外预测（协议与 Step 3 一致）
 # ============================================================
-REFIT_EVERY = 5
 print("=" * 78)
-print("[B] Walk-forward 样本外预测（每 5 天重训，避免 lookahead bias）")
+print("[B] Walk-forward 样本外预测（每日用截至 t-1 的数据重新估计）")
 print("=" * 78)
+# 每个测试日都重新估计并做 1 步预测，使各模型与 baseline 使用的信息集完全一致。
+# （若隔若干天才重估，两次重估之间的预测会停留在旧信息上，而 baseline 每天更新，
+#   对照就不公平，会系统性地压低 GARCH 族的表现。）
 
 forecasts = {}
 for name, spec in MODELS.items():
     print(f"  {name:10s} ...", end='', flush=True)
-    preds, last, last_i = [], None, -1
+    preds = []
     for i in range(len(test)):
-        if last is None or i - last_i >= REFIT_EVERY:
-            last = fit(spec, returns[:train_size + i])
-            last_i = i
-        fc = last.forecast(horizon=1, reindex=False)
+        res_i = fit(spec, returns[:train_size + i])
+        fc = res_i.forecast(horizon=1, reindex=False)
         preds.append(fc.variance.values[-1, 0])      # 存的是方差 sigma^2
     forecasts[name] = pd.Series(preds, index=test.index)
     print(" 完成")
@@ -137,9 +137,9 @@ print("  Baseline-30d 完成\n")
 # ============================================================
 # 4. 修正后的评价体系（Step 3 的核心教训）
 # ============================================================
-# Step 3 的坑：拿 |r| 当"真实波动率"。但 E|r_t| = sigma_t * sqrt(2/pi) ≈ 0.798 * sigma_t，
-#   -> |r| 系统性低估 sigma，任何一个"其实预测得挺准"的模型看起来都在高估（bias 为正）
-#   -> 而且 MAE 配这个有偏代理，不是 Patton(2011) 意义上的 robust loss，模型排序会被扭曲
+# Step 3 用 |r| 作为波动率代理存在系统性偏误：E|r_t| = sigma_t * sqrt(2/pi) ≈ 0.798 * sigma_t，
+#   -> |r| 系统性低于 sigma，即使预测准确的模型也会呈现正的 bias
+#   -> 且 MAE 搭配有偏代理不属于 Patton(2011) 意义上的 robust loss，模型排序可能被扭曲
 # 正解：r^2 对 sigma^2 是条件无偏的（E[r^2 | F_{t-1}] = sigma^2_t），配 MSE / QLIKE 才 robust
 r2 = test ** 2          # 真实波动率代理（方差口径）
 abs_r = test.abs()      # 保留 |r| 口径，只做直观展示和跟 Step 3 对账
@@ -147,8 +147,8 @@ abs_r = test.abs()      # 保留 |r| 口径，只做直观展示和跟 Step 3 �
 
 def qlike_series(sig2, proxy2):
     """QLIKE = ln(sigma^2) + r^2 / sigma^2，越小越好。
-    它对"低估波动率"的惩罚远大于"高估" —— 而风险管理里低估恰恰是致命的那一侧，
-    所以在风控语境下 QLIKE 比 MSE 更合适（这句话面试可以直接搬）。"""
+    它对"低估波动率"的惩罚远大于"高估"，而风险管理中低估正是代价更高的一侧，
+    因此在风控语境下 QLIKE 比 MSE 更贴合决策目标。"""
     return np.log(sig2) + proxy2 / sig2
 
 
@@ -173,8 +173,8 @@ ratio = abs_r.mean() / np.sqrt(r2.mean())
 print(f"验证 Step 3 那个偏误的机制：")
 print(f"  测试期 mean|r| = {abs_r.mean():.4f}%，sqrt(mean r^2) = {np.sqrt(r2.mean()):.4f}%")
 print(f"  实测比值 = {ratio:.4f}，正态理论值 sqrt(2/pi) = {np.sqrt(2 / np.pi):.4f}")
-print(f"  -> 两者接近，证实 |r| 系统性低估 sigma 约 20%，")
-print(f"     Step 3 里两个模型 bias 都为正是机制性的，不是模型烂。\n")
+print(f"  -> 两者接近，证实 |r| 系统性低于 sigma 约 20%，")
+print(f"     Step 3 中各模型 bias 一致为正源于代理变量，而非模型设定问题。\n")
 
 
 # ============================================================
@@ -213,8 +213,8 @@ for name in MODELS:
     })
 tab_c = pd.DataFrame(dm_rows).set_index('模型 vs Baseline')
 print(tab_c.round(4).to_string())
-print("\n注：n=302 的小样本拿不到显著性非常正常。诚实报告'无显著差异'，")
-print("    比硬吹'提升了百分之几'专业得多 —— 后者面试官一追问显著性就崩。\n")
+print("\n注：n=302 属小样本，检验功效有限；未被拒绝的情形应理解为证据不足，")
+print("    而非两模型等价。显著者按 5% 水平报告，不显著者只作方向性描述。\n")
 
 
 # ============================================================
@@ -314,5 +314,5 @@ pd.DataFrame({k: np.sqrt(v) for k, v in forecasts.items()}).assign(
     realized_abs_r=abs_r, r2=r2).to_csv(OUT / "SPY_step4_forecasts.csv", encoding='utf-8-sig')
 print(f"三张表 + 预测明细已存到 {OUT}")
 
-plt.show()
+plt.close(fig)
 print("\n[OK] Step 4 完成。下一步 Step 5：GitHub README 打包 + 一页 PDF 报告")
